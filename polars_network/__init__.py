@@ -8,11 +8,14 @@ from polars._typing import IntoExpr
 from polars.api import register_expr_namespace
 from polars.plugins import register_plugin_function
 
+from . import polars_network as _native
+
 if TYPE_CHECKING:  # pragma: no cover
     from typing import Sequence
 
 
-PLUGIN_PATH = Path(__file__).parent
+PLUGIN_PATH = Path(_native.__file__).parent
+__version__ = _native.__version__
 
 
 def _plugin_expr(function_name: str, args: Sequence[pl.Expr]) -> pl.Expr:
@@ -44,4 +47,4 @@ class CidrNamespace:
         return _plugin_expr("cidr_subnet_of", (self._expr, _to_expr(other)))
 
 
-__all__ = ["CidrNamespace"]
+__all__ = ["CidrNamespace", "__version__"]

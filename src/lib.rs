@@ -11,7 +11,7 @@ pub mod expressions;
 #[pymodule]
 fn polars_network(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Register submodules
-    m.add("__version__", "0.1.0")?;
+    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
 
     expressions::register(m)?;
 
