@@ -1,0 +1,38 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Sequence
+
+import polars as pl
+from polars._typing import IntoExpr
+
+PLUGIN_PATH: Path
+__version__: str
+
+
+def _plugin_expr(function_name: str, args: Sequence[pl.Expr]) -> pl.Expr: ...
+
+
+def _to_expr(value: IntoExpr) -> pl.Expr: ...
+
+
+class CidrNamespace:
+    _expr: pl.Expr
+
+    def __init__(self, expr: pl.Expr) -> None: ...
+
+    def contains(self, other: IntoExpr) -> pl.Expr: ...
+
+    def subnet_of(self, other: IntoExpr) -> pl.Expr: ...
+
+    def contains_any(self, other: IntoExpr) -> pl.Expr: ...
+
+    def subnet_of_any(self, other: IntoExpr) -> pl.Expr: ...
+
+    def is_root(self) -> pl.Expr: ...
+
+
+__all__: list[str]
+
+Expr = pl.Expr
+Expr.cidr: CidrNamespace = ...
