@@ -58,5 +58,13 @@ class CidrNamespace:
         """Return a boolean expression indicating whether ``self`` is not contained in any other CIDR within the column."""
         return _plugin_expr("cidr_is_root", (self._expr,))
 
+    def network_address(self) -> pl.Expr:
+        """Return an expression with the network address of each CIDR in ``self``."""
+        return _plugin_expr("cidr_network_address", (self._expr,))
+
+    def broadcast_address(self) -> pl.Expr:
+        """Return an expression with the broadcast address of each CIDR in ``self``."""
+        return _plugin_expr("cidr_broadcast_address", (self._expr,))
+
 
 __all__ = ["CidrNamespace", "__version__"]

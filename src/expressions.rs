@@ -1,5 +1,6 @@
 use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
 use polars::prelude::*;
+use std::net::Ipv6Addr;
 use pyo3::prelude::*;
 use pyo3_polars::derive::polars_expr;
 
@@ -146,6 +147,56 @@ pub fn cidr_is_root(inputs: &[Series]) -> PolarsResult<Series> {
                 }
 
                 builder.append_value(!has_parent);
+            }
+            None => builder.append_null(),
+        }
+    }
+
+    Ok(builder.finish().into_series())
+}
+
+#[polars_expr(output_type=String)]
+pub fn cidr_network_address(inputs: &[Series]) -> PolarsResult<Series> {
+    polars_ensure!(
+        inputs.len() == 1,
+        ComputeError: "cidr.network_address expects 1 argument (expression)"
+    );
+
+    let series = inputs[0].str()?;
+    let len = series.len();
+    let name = series.name().clone();
+    let mut builder = StringChunkedBuilder::new(name, len);
+
+    for value in series.into_iter() {
+        match parse_optional_network(value) {
+            Some(network) => {
+                let addr = network_address_string(&network);
+                builder.append_value(&addr);
+            }
+            None => builder.append_null(),
+        }
+    }
+
+    Ok(builder.finish().into_series())
+}
+
+#[polars_expr(output_type=String)]
+pub fn cidr_broadcast_address(inputs: &[Series]) -> PolarsResult<Series> {
+    polars_ensure!(
+        inputs.len() == 1,
+        ComputeError: "cidr.broadcast_address expects 1 argument (expression)"
+    );
+
+    let series = inputs[0].str()?;
+    let len = series.len();
+    let name = series.name().clone();
+    let mut builder = StringChunkedBuilder::new(name, len);
+
+    for value in series.into_iter() {
+        match parse_optional_network(value) {
+            Some(network) => {
+                let addr = broadcast_address_string(&network);
+                builder.append_value(&addr);
             }
             None => builder.append_null(),
         }
@@ -352,6 +403,20 @@ fn network_contains(supernet: &IpNetwork, subnet: &IpNetwork) -> bool {
     }
 }
 
+fn network_address_string(network: &IpNetwork) -> String {
+    match network {
+        IpNetwork::V4(net) => net.network().to_string(),
+        IpNetwork::V6(net) => net.network().to_string(),
+    }
+}
+
+fn broadcast_address_string(network: &IpNetwork) -> String {
+    match network {
+        IpNetwork::V4(net) => net.broadcast().to_string(),
+        IpNetwork::V6(net) => ipv6_broadcast_address(net).to_string(),
+    }
+}
+
 fn contains_ipv4(supernet: &Ipv4Network, subnet: &Ipv4Network) -> bool {
     if supernet.prefix() > subnet.prefix() {
         return false;
@@ -384,4 +449,10 @@ fn ipv6_prefix_mask(prefix: u8) -> u128 {
     } else {
         u128::MAX << (128 - u32::from(prefix))
     }
+}
+
+fn ipv6_broadcast_address(network: &Ipv6Network) -> Ipv6Addr {
+    let mask = ipv6_prefix_mask(network.prefix());
+    let host_mask = !mask;
+    Ipv6Addr::from(u128::from(network.network()) | host_mask)
 }

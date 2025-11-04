@@ -31,8 +31,12 @@ class CidrNamespace:
 
     def is_root(self) -> pl.Expr: ...
 
+    def network_address(self) -> pl.Expr: ...
+
+    def broadcast_address(self) -> pl.Expr: ...
+
 
 __all__: list[str]
 
 Expr = pl.Expr
-Expr.cidr: CidrNamespace = ...
+Expr.cidr: CidrNamespace = ...  # type: ignore[misc]
