@@ -205,6 +205,47 @@ pub fn cidr_broadcast_address(inputs: &[Series]) -> PolarsResult<Series> {
     Ok(builder.finish().into_series())
 }
 
+#[polars_expr(output_type=Int64)]
+pub fn cidr_netmask(inputs: &[Series]) -> PolarsResult<Series> {
+    polars_ensure!(
+        inputs.len() == 1 || inputs.len() == 2,
+        ComputeError: "cidr.netmask expects 1 or 2 arguments (expression, optional binary flag)"
+    );
+
+    let series = inputs[0].str()?;
+    let len = series.len();
+    let name = series.name().clone();
+
+    let binary = if inputs.len() == 2 {
+        resolve_bool_argument(&inputs[1], "binary", len)?
+    } else {
+        BoolArgument::Literal(false)
+    };
+
+    let mut results: Vec<Option<i64>> = Vec::with_capacity(len);
+    for (idx, value) in series.into_iter().enumerate() {
+        let entry = match (parse_optional_network(value), binary.value_at(idx)) {
+            (Some(network), Some(is_binary)) => {
+                if is_binary {
+                    match network {
+                        IpNetwork::V4(net) => Some(i64::from(u32::from(net.mask()))),
+                        IpNetwork::V6(_) => None,
+                    }
+                } else {
+                    Some(i64::from(network.prefix()))
+                }
+            }
+            (Some(_), None) => None,
+            _ => None,
+        };
+
+        results.push(entry);
+    }
+
+    let chunked = Int64Chunked::from_iter(results);
+    Ok(chunked.with_name(name).into_series())
+}
+
 enum NetworkArgument {
     Literal(IpNetwork),
     Series(Vec<Option<IpNetwork>>),
@@ -260,6 +301,20 @@ enum NetworkListArgument {
     Series(Vec<Option<Vec<IpNetwork>>>),
 }
 
+enum BoolArgument {
+    Literal(bool),
+    Series(Vec<Option<bool>>),
+}
+
+impl BoolArgument {
+    fn value_at(&self, idx: usize) -> Option<bool> {
+        match self {
+            BoolArgument::Literal(value) => Some(*value),
+            BoolArgument::Series(values) => values.get(idx).copied().flatten(),
+        }
+    }
+}
+
 impl NetworkListArgument {
     fn values_at(&self, idx: usize) -> Option<&[IpNetwork]> {
         match self {
@@ -296,6 +351,40 @@ fn resolve_network_list_argument(
         arg_name,
         dtype
     )
+}
+
+fn resolve_bool_argument(
+    series: &Series,
+    arg_name: &str,
+    expected_len: usize,
+) -> PolarsResult<BoolArgument> {
+    let chunked = if series.dtype() == &DataType::Boolean {
+        series.bool()?.clone()
+    } else {
+        polars_bail!(
+            ComputeError: "{} argument must be a literal or expression containing booleans (got {:?})",
+            arg_name,
+            series.dtype()
+        )
+    };
+
+    if chunked.len() == 1 {
+        let value = chunked.get(0).ok_or_else(|| {
+            polars_err!(ComputeError: "{} argument cannot be null", arg_name)
+        })?;
+
+        return Ok(BoolArgument::Literal(value));
+    }
+
+    polars_ensure!(
+        chunked.len() == expected_len,
+        ComputeError: "{} argument must be a literal or expression with {} rows (got {})",
+        arg_name,
+        expected_len,
+        chunked.len()
+    );
+
+    Ok(BoolArgument::Series(chunked.into_iter().collect()))
 }
 
 fn resolve_list_argument(

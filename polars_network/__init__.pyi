@@ -35,6 +35,8 @@ class CidrNamespace:
 
     def broadcast_address(self) -> pl.Expr: ...
 
+    def netmask(self, binary: IntoExpr = False) -> pl.Expr: ...
+
 
 __all__: list[str]
 

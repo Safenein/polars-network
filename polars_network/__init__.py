@@ -66,5 +66,9 @@ class CidrNamespace:
         """Return an expression with the broadcast address of each CIDR in ``self``."""
         return _plugin_expr("cidr_broadcast_address", (self._expr,))
 
+    def netmask(self, binary: IntoExpr = False) -> pl.Expr:
+        """Return an expression with the CIDR prefix length or IPv4 mask when ``binary`` is ``True``."""
+        return _plugin_expr("cidr_netmask", (self._expr, _to_expr(binary)))
+
 
 __all__ = ["CidrNamespace", "__version__"]
