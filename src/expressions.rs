@@ -11,20 +11,21 @@ pub fn register(_module: &Bound<'_, PyModule>) -> PyResult<()> {
 pub fn cidr_contains(inputs: &[Series]) -> PolarsResult<Series> {
     polars_ensure!(
         inputs.len() == 2,
-        ComputeError: "cidr.contains expects 2 arguments (expression, cidr literal)"
+        ComputeError: "cidr.contains expects 2 arguments (expression, cidr expression or literal)"
     );
 
     let series = inputs[0].str()?;
-    let needle = parse_network_argument(&inputs[1], "needle")?;
+    let len = series.len();
+    let name = series.name().clone();
+    let needle = resolve_network_argument(&inputs[1], "needle", len)?;
 
-    let mut builder = BooleanChunkedBuilder::new(series.name().clone(), series.len());
-    for value in series.into_iter() {
-        match value {
-            Some(text) => match text.parse::<IpNetwork>() {
-                Ok(network) => builder.append_value(network_contains(&network, &needle)),
-                Err(_) => builder.append_null(),
-            },
-            None => builder.append_null(),
+    let mut builder = BooleanChunkedBuilder::new(name, len);
+    for (idx, value) in series.into_iter().enumerate() {
+        match (parse_optional_network(value), needle.value_at(idx)) {
+            (Some(network), Some(needle_network)) => {
+                builder.append_value(network_contains(&network, needle_network))
+            }
+            _ => builder.append_null(),
         }
     }
 
@@ -35,42 +36,78 @@ pub fn cidr_contains(inputs: &[Series]) -> PolarsResult<Series> {
 pub fn cidr_subnet_of(inputs: &[Series]) -> PolarsResult<Series> {
     polars_ensure!(
         inputs.len() == 2,
-        ComputeError: "cidr.subnet_of expects 2 arguments (expression, cidr literal)"
+        ComputeError: "cidr.subnet_of expects 2 arguments (expression, cidr expression or literal)"
     );
 
     let series = inputs[0].str()?;
-    let supernet = parse_network_argument(&inputs[1], "supernet")?;
+    let len = series.len();
+    let name = series.name().clone();
+    let supernet = resolve_network_argument(&inputs[1], "supernet", len)?;
 
-    let mut builder = BooleanChunkedBuilder::new(series.name().clone(), series.len());
-    for value in series.into_iter() {
-        match value {
-            Some(text) => match text.parse::<IpNetwork>() {
-                Ok(network) => builder.append_value(network_contains(&supernet, &network)),
-                Err(_) => builder.append_null(),
-            },
-            None => builder.append_null(),
+    let mut builder = BooleanChunkedBuilder::new(name, len);
+    for (idx, value) in series.into_iter().enumerate() {
+        match (parse_optional_network(value), supernet.value_at(idx)) {
+            (Some(network), Some(supernet_network)) => {
+                builder.append_value(network_contains(supernet_network, &network))
+            }
+            _ => builder.append_null(),
         }
     }
 
     Ok(builder.finish().into_series())
 }
 
-fn parse_network_argument(series: &Series, arg_name: &str) -> PolarsResult<IpNetwork> {
+enum NetworkArgument {
+    Literal(IpNetwork),
+    Series(Vec<Option<IpNetwork>>),
+}
+
+impl NetworkArgument {
+    fn value_at(&self, idx: usize) -> Option<&IpNetwork> {
+        match self {
+            NetworkArgument::Literal(network) => Some(network),
+            NetworkArgument::Series(values) => values.get(idx).and_then(|value| value.as_ref()),
+        }
+    }
+}
+
+fn resolve_network_argument(
+    series: &Series,
+    arg_name: &str,
+    expected_len: usize,
+) -> PolarsResult<NetworkArgument> {
     let chunked = series.str()?;
 
+    if chunked.len() == 1 {
+        let value = chunked
+            .get(0)
+            .ok_or_else(|| polars_err!(ComputeError: "{} argument cannot be null", arg_name))?;
+
+        let network = value.parse::<IpNetwork>().map_err(|err| {
+            polars_err!(ComputeError: "invalid {} CIDR '{}': {}", arg_name, value, err)
+        })?;
+
+        return Ok(NetworkArgument::Literal(network));
+    }
+
     polars_ensure!(
-        chunked.len() == 1,
-        ComputeError: "{} argument must be a literal with a single value",
-        arg_name
+        chunked.len() == expected_len,
+        ComputeError: "{} argument must be a literal or expression with {} rows (got {})",
+        arg_name,
+        expected_len,
+        chunked.len()
     );
 
-    let value = chunked
-        .get(0)
-        .ok_or_else(|| polars_err!(ComputeError: "{} argument cannot be null", arg_name))?;
+    let parsed_values = chunked
+        .into_iter()
+        .map(parse_optional_network)
+        .collect::<Vec<_>>();
 
-    value
-        .parse::<IpNetwork>()
-        .map_err(|err| polars_err!(ComputeError: "invalid {} CIDR '{}': {}", arg_name, value, err))
+    Ok(NetworkArgument::Series(parsed_values))
+}
+
+fn parse_optional_network(value: Option<&str>) -> Option<IpNetwork> {
+    value.and_then(|text| text.parse::<IpNetwork>().ok())
 }
 
 fn network_contains(supernet: &IpNetwork, subnet: &IpNetwork) -> bool {
