@@ -41,10 +41,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: 3.x
+      - name: Prepare pip cache
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p ~/.cache/pip
+          mkdir -p ~/Library/Caches/pip
       - name: Cache pip downloads
         uses: actions/cache@v4
         with:
-          path: ~/.cache/pip
+          path: |
+            ~/.cache/pip
+            ~/Library/Caches/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('pyproject.toml') }}
           restore-keys: |
             ${{ runner.os }}-pip-
@@ -84,10 +91,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: 3.x
+      - name: Prepare pip cache
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p ~/.cache/pip
+          mkdir -p ~/Library/Caches/pip
       - name: Cache pip downloads
         uses: actions/cache@v4
         with:
-          path: ~/.cache/pip
+          path: |
+            ~/.cache/pip
+            ~/Library/Caches/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('pyproject.toml') }}
           restore-keys: |
             ${{ runner.os }}-pip-
@@ -124,6 +138,9 @@ jobs:
         with:
           python-version: 3.x
           architecture: ${{ matrix.platform.target }}
+      - name: Prepare pip cache
+        if: runner.os == 'Windows'
+        run: powershell -Command "New-Item -ItemType Directory -Force -Path $env:LOCALAPPDATA\\pip\\Cache"
       - name: Cache pip downloads
         uses: actions/cache@v4
         with:
@@ -164,10 +181,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: 3.x
+      - name: Prepare pip cache
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p ~/.cache/pip
+          mkdir -p ~/Library/Caches/pip
       - name: Cache pip downloads
         uses: actions/cache@v4
         with:
-          path: ~/.cache/pip
+          path: |
+            ~/.cache/pip
+            ~/Library/Caches/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('pyproject.toml') }}
           restore-keys: |
             ${{ runner.os }}-pip-
@@ -192,10 +216,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Prepare pip cache
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p ~/.cache/pip
+          mkdir -p ~/Library/Caches/pip
       - name: Cache pip downloads
         uses: actions/cache@v4
         with:
-          path: ~/.cache/pip
+          path: |
+            ~/.cache/pip
+            ~/Library/Caches/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('pyproject.toml') }}
           restore-keys: |
             ${{ runner.os }}-pip-
