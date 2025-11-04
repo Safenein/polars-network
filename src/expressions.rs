@@ -113,6 +113,47 @@ pub fn cidr_subnet_of_any(inputs: &[Series]) -> PolarsResult<Series> {
     Ok(builder.finish().into_series())
 }
 
+#[polars_expr(output_type=Boolean)]
+pub fn cidr_is_root(inputs: &[Series]) -> PolarsResult<Series> {
+    polars_ensure!(
+        inputs.len() == 1,
+        ComputeError: "cidr.is_root expects 1 argument (expression)"
+    );
+
+    let series = inputs[0].str()?;
+    let len = series.len();
+    let name = series.name().clone();
+    let networks = series.into_iter().map(parse_optional_network).collect::<Vec<_>>();
+
+    let mut builder = BooleanChunkedBuilder::new(name, len);
+    for (idx, current) in networks.iter().enumerate() {
+        match current {
+            Some(network) => {
+                let mut has_parent = false;
+                for (other_idx, candidate) in networks.iter().enumerate() {
+                    if other_idx == idx {
+                        continue;
+                    }
+
+                    if let Some(candidate_network) = candidate {
+                        if candidate_network != network
+                            && network_contains(candidate_network, network)
+                        {
+                            has_parent = true;
+                            break;
+                        }
+                    }
+                }
+
+                builder.append_value(!has_parent);
+            }
+            None => builder.append_null(),
+        }
+    }
+
+    Ok(builder.finish().into_series())
+}
+
 enum NetworkArgument {
     Literal(IpNetwork),
     Series(Vec<Option<IpNetwork>>),
