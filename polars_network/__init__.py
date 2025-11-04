@@ -46,5 +46,13 @@ class CidrNamespace:
         """Return a boolean expression indicating whether ``self`` is a subnet of ``other``."""
         return _plugin_expr("cidr_subnet_of", (self._expr, _to_expr(other)))
 
+    def contains_any(self, other: IntoExpr) -> pl.Expr:
+        """Return a boolean expression indicating whether ``self`` contains any CIDR in ``other``."""
+        return _plugin_expr("cidr_contains_any", (self._expr, _to_expr(other)))
+
+    def subnet_of_any(self, other: IntoExpr) -> pl.Expr:
+        """Return a boolean expression indicating whether ``self`` is a subnet of any CIDR in ``other``."""
+        return _plugin_expr("cidr_subnet_of_any", (self._expr, _to_expr(other)))
+
 
 __all__ = ["CidrNamespace", "__version__"]
