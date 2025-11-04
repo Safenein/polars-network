@@ -277,31 +277,28 @@ pub fn cidr_supernet(inputs: &[Series]) -> PolarsResult<Series> {
         ComputeError: "cidr.supernet expects 1 argument (expression)"
     );
 
-    let groups = inputs[0].list()?;
-    let len = groups.len();
-    let name = groups.name().clone();
+    let series = &inputs[0];
+    let name = series.name().clone();
 
-    let mut builder = StringChunkedBuilder::new(name, len);
-
-    for group_series in groups.clone().into_iter() {
-        match group_series {
-            Some(series) => {
-                let networks = parse_group_networks(series)?;
-                if networks.is_empty() {
-                    builder.append_null();
-                    continue;
-                }
-
-                match minimal_supernet(&networks) {
-                    Some(supernet) => builder.append_value(&supernet.to_string()),
-                    None => builder.append_null(),
+    match series.dtype() {
+        DataType::String => {
+            let chunked = series.str()?;
+            let mut networks = Vec::with_capacity(chunked.len());
+            for value in chunked.into_iter() {
+                if let Some(network) = parse_optional_network(value) {
+                    networks.push(network);
                 }
             }
-            None => builder.append_null(),
-        }
-    }
 
-    Ok(builder.finish().into_series())
+            let result = minimal_supernet(&networks).map(|net| net.to_string());
+            let chunked = StringChunked::from_iter([result]);
+            Ok(chunked.with_name(name).into_series())
+        }
+        dtype => polars_bail!(
+            ComputeError: "cidr.supernet expects UTF-8 values (got {:?})",
+            dtype
+        ),
+    }
 }
 
 enum NetworkArgument {
@@ -443,19 +440,6 @@ fn resolve_bool_argument(
     );
 
     Ok(BoolArgument::Series(chunked.into_iter().collect()))
-}
-
-fn parse_group_networks(series: Series) -> PolarsResult<Vec<IpNetwork>> {
-    let chunked = series.str()?;
-    let mut networks = Vec::with_capacity(chunked.len());
-
-    for value in chunked.into_iter() {
-        if let Some(network) = parse_optional_network(value) {
-            networks.push(network);
-        }
-    }
-
-    Ok(networks)
 }
 
 fn minimal_supernet(networks: &[IpNetwork]) -> Option<IpNetwork> {
