@@ -1692,7 +1692,7 @@ dependencies = [
 
 [[package]]
 name = "polars-network"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "ipnetwork",
  "polars",
