@@ -1,6 +1,6 @@
 use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
 use polars::prelude::*;
-use std::net::Ipv6Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 use pyo3::prelude::*;
 use pyo3_polars::derive::polars_expr;
 
@@ -246,6 +246,64 @@ pub fn cidr_netmask(inputs: &[Series]) -> PolarsResult<Series> {
     Ok(chunked.with_name(name).into_series())
 }
 
+#[polars_expr(output_type=Int64)]
+pub fn cidr_version(inputs: &[Series]) -> PolarsResult<Series> {
+    polars_ensure!(
+        inputs.len() == 1,
+        ComputeError: "cidr.version expects 1 argument (expression)"
+    );
+
+    let series = inputs[0].str()?;
+    let len = series.len();
+    let name = series.name().clone();
+
+    let mut values = Vec::with_capacity(len);
+    for value in series.into_iter() {
+        let entry = parse_optional_network(value).map(|network| match network {
+            IpNetwork::V4(_) => 4,
+            IpNetwork::V6(_) => 6,
+        });
+        values.push(entry.map(i64::from));
+    }
+
+    let chunked = Int64Chunked::from_iter(values);
+    Ok(chunked.with_name(name).into_series())
+}
+
+#[polars_expr(output_type=String)]
+pub fn cidr_supernet(inputs: &[Series]) -> PolarsResult<Series> {
+    polars_ensure!(
+        inputs.len() == 1,
+        ComputeError: "cidr.supernet expects 1 argument (expression)"
+    );
+
+    let groups = inputs[0].list()?;
+    let len = groups.len();
+    let name = groups.name().clone();
+
+    let mut builder = StringChunkedBuilder::new(name, len);
+
+    for group_series in groups.clone().into_iter() {
+        match group_series {
+            Some(series) => {
+                let networks = parse_group_networks(series)?;
+                if networks.is_empty() {
+                    builder.append_null();
+                    continue;
+                }
+
+                match minimal_supernet(&networks) {
+                    Some(supernet) => builder.append_value(&supernet.to_string()),
+                    None => builder.append_null(),
+                }
+            }
+            None => builder.append_null(),
+        }
+    }
+
+    Ok(builder.finish().into_series())
+}
+
 enum NetworkArgument {
     Literal(IpNetwork),
     Series(Vec<Option<IpNetwork>>),
@@ -385,6 +443,89 @@ fn resolve_bool_argument(
     );
 
     Ok(BoolArgument::Series(chunked.into_iter().collect()))
+}
+
+fn parse_group_networks(series: Series) -> PolarsResult<Vec<IpNetwork>> {
+    let chunked = series.str()?;
+    let mut networks = Vec::with_capacity(chunked.len());
+
+    for value in chunked.into_iter() {
+        if let Some(network) = parse_optional_network(value) {
+            networks.push(network);
+        }
+    }
+
+    Ok(networks)
+}
+
+fn minimal_supernet(networks: &[IpNetwork]) -> Option<IpNetwork> {
+    if networks.is_empty() {
+        return None;
+    }
+
+    let mut ipv4 = Vec::new();
+    let mut ipv6 = Vec::new();
+
+    for network in networks {
+        match network {
+            IpNetwork::V4(v4) => ipv4.push(v4.clone()),
+            IpNetwork::V6(v6) => ipv6.push(v6.clone()),
+        }
+    }
+
+    match (ipv4.is_empty(), ipv6.is_empty()) {
+        (false, true) => minimal_supernet_ipv4(&ipv4).map(IpNetwork::V4),
+        (true, false) => minimal_supernet_ipv6(&ipv6).map(IpNetwork::V6),
+        _ => None,
+    }
+}
+
+fn minimal_supernet_ipv4(networks: &[Ipv4Network]) -> Option<Ipv4Network> {
+    if networks.is_empty() {
+        return None;
+    }
+
+    let mut min_addr = u32::MAX;
+    let mut max_addr = 0_u32;
+
+    for network in networks {
+        let network_addr = u32::from(network.network());
+        let broadcast_addr = u32::from(network.broadcast());
+        min_addr = min_addr.min(network_addr);
+        max_addr = max_addr.max(broadcast_addr);
+    }
+
+    let diff = min_addr ^ max_addr;
+    let prefix = diff.leading_zeros() as u8;
+
+    let mask = ipv4_prefix_mask(prefix);
+    let network_u32 = min_addr & mask;
+
+    Ipv4Network::new(Ipv4Addr::from(network_u32), prefix).ok()
+}
+
+fn minimal_supernet_ipv6(networks: &[Ipv6Network]) -> Option<Ipv6Network> {
+    if networks.is_empty() {
+        return None;
+    }
+
+    let mut min_addr = u128::MAX;
+    let mut max_addr = 0_u128;
+
+    for network in networks {
+        let network_addr = u128::from(network.network());
+        let broadcast_addr = u128::from(ipv6_broadcast_address(network));
+        min_addr = min_addr.min(network_addr);
+        max_addr = max_addr.max(broadcast_addr);
+    }
+
+    let diff = min_addr ^ max_addr;
+    let prefix = diff.leading_zeros() as u8;
+
+    let mask = ipv6_prefix_mask(prefix);
+    let network_u128 = min_addr & mask;
+
+    Ipv6Network::new(Ipv6Addr::from(network_u128), prefix).ok()
 }
 
 fn resolve_list_argument(
@@ -545,3 +686,4 @@ fn ipv6_broadcast_address(network: &Ipv6Network) -> Ipv6Addr {
     let host_mask = !mask;
     Ipv6Addr::from(u128::from(network.network()) | host_mask)
 }
+
