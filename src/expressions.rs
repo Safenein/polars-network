@@ -205,13 +205,16 @@ fn resolve_network_argument(
 
 enum NetworkListArgument {
     Literal(Vec<IpNetwork>),
+    Column(Vec<IpNetwork>),
     Series(Vec<Option<Vec<IpNetwork>>>),
 }
 
 impl NetworkListArgument {
     fn values_at(&self, idx: usize) -> Option<&[IpNetwork]> {
         match self {
-            NetworkListArgument::Literal(values) => Some(values.as_slice()),
+            NetworkListArgument::Literal(values) | NetworkListArgument::Column(values) => {
+                Some(values.as_slice())
+            }
             NetworkListArgument::Series(rows) => rows
                 .get(idx)
                 .and_then(|row| row.as_ref().map(|values| values.as_slice())),
@@ -233,7 +236,7 @@ fn resolve_network_list_argument(
     }
 
     if series.str().is_ok() {
-        return resolve_string_argument_as_list(series, arg_name, expected_len);
+        return resolve_string_argument_as_list(series, arg_name);
     }
 
     let dtype = series.dtype();
@@ -282,7 +285,6 @@ fn resolve_list_argument(
 fn resolve_string_argument_as_list(
     series: &Series,
     arg_name: &str,
-    expected_len: usize,
 ) -> PolarsResult<NetworkListArgument> {
     let chunked = series.str()?;
 
@@ -298,20 +300,12 @@ fn resolve_string_argument_as_list(
         return Ok(NetworkListArgument::Literal(vec![network]));
     }
 
-    polars_ensure!(
-        chunked.len() == expected_len,
-        ComputeError: "{} argument must be a literal or expression with {} rows (got {})",
-        arg_name,
-        expected_len,
-        chunked.len()
-    );
-
-    let parsed_values = chunked
+    let networks = chunked
         .into_iter()
-        .map(|value| parse_optional_network(value).map(|network| vec![network]))
+        .filter_map(parse_optional_network)
         .collect::<Vec<_>>();
 
-    Ok(NetworkListArgument::Series(parsed_values))
+    Ok(NetworkListArgument::Column(networks))
 }
 
 fn parse_literal_network_list(series: &Series, arg_name: &str) -> PolarsResult<Vec<IpNetwork>> {
