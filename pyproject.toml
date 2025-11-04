@@ -18,3 +18,13 @@ dependencies = [
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
+
+[tool.uv.workspace]
+members = [
+    "3.12",
+]
+
+[dependency-groups]
+dev = [
+    "ipython>=8.12.3",
+]
