@@ -155,7 +155,7 @@ pub fn cidr_is_root(inputs: &[Series]) -> PolarsResult<Series> {
     Ok(builder.finish().into_series())
 }
 
-#[polars_expr(output_type=String)]
+#[polars_expr(output_type=Int64)]
 pub fn cidr_network_address(inputs: &[Series]) -> PolarsResult<Series> {
     polars_ensure!(
         inputs.len() == 1,
@@ -165,22 +165,21 @@ pub fn cidr_network_address(inputs: &[Series]) -> PolarsResult<Series> {
     let series = inputs[0].str()?;
     let len = series.len();
     let name = series.name().clone();
-    let mut builder = StringChunkedBuilder::new(name, len);
+    let mut values = Vec::with_capacity(len);
 
     for value in series.into_iter() {
-        match parse_optional_network(value) {
-            Some(network) => {
-                let addr = network_address_string(&network);
-                builder.append_value(&addr);
-            }
-            None => builder.append_null(),
-        }
+        let entry = parse_optional_network(value)
+            .and_then(|network| network_address_numeric(&network));
+        values.push(entry);
     }
 
-    Ok(builder.finish().into_series())
+    let chunked = Int64Chunked::from_iter(values);
+    let mut series = chunked.into_series();
+    series.rename(name);
+    Ok(series)
 }
 
-#[polars_expr(output_type=String)]
+#[polars_expr(output_type=Int64)]
 pub fn cidr_broadcast_address(inputs: &[Series]) -> PolarsResult<Series> {
     polars_ensure!(
         inputs.len() == 1,
@@ -190,19 +189,18 @@ pub fn cidr_broadcast_address(inputs: &[Series]) -> PolarsResult<Series> {
     let series = inputs[0].str()?;
     let len = series.len();
     let name = series.name().clone();
-    let mut builder = StringChunkedBuilder::new(name, len);
+    let mut values = Vec::with_capacity(len);
 
     for value in series.into_iter() {
-        match parse_optional_network(value) {
-            Some(network) => {
-                let addr = broadcast_address_string(&network);
-                builder.append_value(&addr);
-            }
-            None => builder.append_null(),
-        }
+        let entry = parse_optional_network(value)
+            .and_then(|network| broadcast_address_numeric(&network));
+        values.push(entry);
     }
 
-    Ok(builder.finish().into_series())
+    let chunked = Int64Chunked::from_iter(values);
+    let mut series = chunked.into_series();
+    series.rename(name);
+    Ok(series)
 }
 
 #[polars_expr(output_type=Int64)]
@@ -617,17 +615,19 @@ fn network_contains(supernet: &IpNetwork, subnet: &IpNetwork) -> bool {
     }
 }
 
-fn network_address_string(network: &IpNetwork) -> String {
+fn network_address_numeric(network: &IpNetwork) -> Option<i64> {
     match network {
-        IpNetwork::V4(net) => net.network().to_string(),
-        IpNetwork::V6(net) => net.network().to_string(),
+        IpNetwork::V4(net) => Some(i64::from(u32::from(net.network()))),
+        // IPv6 values overflow 64-bit integers, so expose them as nulls.
+        IpNetwork::V6(_) => None,
     }
 }
 
-fn broadcast_address_string(network: &IpNetwork) -> String {
+fn broadcast_address_numeric(network: &IpNetwork) -> Option<i64> {
     match network {
-        IpNetwork::V4(net) => net.broadcast().to_string(),
-        IpNetwork::V6(net) => ipv6_broadcast_address(net).to_string(),
+        IpNetwork::V4(net) => Some(i64::from(u32::from(net.broadcast()))),
+        // IPv6 values overflow 64-bit integers, so expose them as nulls.
+        IpNetwork::V6(_) => None,
     }
 }
 
